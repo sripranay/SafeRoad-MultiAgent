@@ -1,6 +1,7 @@
 import os
 import cv2
 import av
+import gdown
 import tempfile
 import numpy as np
 import streamlit as st
@@ -14,6 +15,30 @@ from agents.llm_agent import LLMAgent, LLMMode
 from agents.orchestrator import Orchestrator
 from agents.tts_agent import TTSAgent
 from utils.draw import draw_boxes
+
+# -------------------------------
+# Ensure Models Exist (Auto Download)
+# -------------------------------
+os.makedirs("models", exist_ok=True)
+
+BEST_MODEL_PATH = "models/best.pt"
+YOLOV8_MODEL_PATH = "models/yolov8s.pt"
+
+if not os.path.exists(BEST_MODEL_PATH):
+    st.warning("Downloading best.pt model from Google Drive...")
+    gdown.download(
+        "https://drive.google.com/uc?id=1KAiUGSIXvpYtw7fWsNzUfuFsCELRGcc2",
+        BEST_MODEL_PATH,
+        quiet=False
+    )
+
+if not os.path.exists(YOLOV8_MODEL_PATH):
+    st.warning("Downloading yolov8s.pt model from Google Drive...")
+    gdown.download(
+        "https://drive.google.com/uc?id=1c81Aupf-g6Ta_in2TRHxvID98E7JzV3O",
+        YOLOV8_MODEL_PATH,
+        quiet=False
+    )
 
 # -------------------------------
 # Streamlit Config
@@ -30,12 +55,12 @@ with st.sidebar:
     llm_mode = st.selectbox("LLM Mode", ["OFFLINE", "OPENAI", "GEMINI"], index=0)
     conf_thres = st.slider("Detection Confidence", 0.1, 0.9, 0.35, 0.05)
     iou_thres = st.slider("NMS IoU", 0.2, 0.9, 0.5, 0.05)
-    st.write("Make sure models are in ./models (best.pt, yolov8s.pt)")
+    st.write("Models auto-downloaded into ./models folder")
 
 # -------------------------------
 # Initialize Agents
 # -------------------------------
-vision = VisionAgent("models/best.pt", "models/yolov8s.pt", conf=conf_thres, iou=iou_thres)
+vision = VisionAgent(BEST_MODEL_PATH, YOLOV8_MODEL_PATH, conf=conf_thres, iou=iou_thres)
 risk = RiskAgent()
 mode_map = {"OFFLINE": LLMMode.OFFLINE, "OPENAI": LLMMode.OPENAI, "GEMINI": LLMMode.GEMINI}
 llm = LLMAgent(mode=mode_map[llm_mode])
