@@ -1,15 +1,24 @@
-streamlit>=1.36
-ultralytics>=8.2.0
-opencv-python-headless>=4.9.0
-numpy>=1.26
-pillow>=10.3
-streamlit-webrtc>=0.47.1
-av>=11.0.0
-gTTS>=2.5.0
+# Core
+streamlit==1.36.0
+ultralytics==8.2.0
+opencv-python-headless==4.9.0.80
+numpy==1.26.4
+pillow==10.3.0
+
+# Webcam + Media
+streamlit-webrtc==0.47.1
+av==11.0.0
+
+# LLMs
+openai==1.43.0
+google-generativeai==0.5.4
+python-dotenv==1.0.1
+langchain==0.2.10
+langchain-openai==0.1.17
+
+# TTS
+gTTS==2.5.0
 playsound==1.2.2
-openai>=1.43.0
-google-generativeai>=0.5.4
-python-dotenv>=1.0.1
-langchain>=0.2.10
-langchain-openai>=0.1.17
-gdown>=5.1.0
+
+# Utilities
+gdown==5.1.0
