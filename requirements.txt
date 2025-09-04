@@ -7,7 +7,6 @@ pillow
 
 # Webcam + Media
 streamlit-webrtc
-av<10  # PyAV 10 fails on Streamlit Cloud
 
 # LLMs
 openai
