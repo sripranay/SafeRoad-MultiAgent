@@ -7,7 +7,8 @@ pillow==10.2.0
 
 # Webcam + Media
 streamlit-webrtc==0.47.1
-av==11.0.0
+# Let streamlit-webrtc pull the right av version automatically
+av
 
 # LLMs
 openai==1.12.0
@@ -20,5 +21,5 @@ langchain-openai==0.0.8
 gTTS==2.5.0
 playsound==1.2.2
 
-# Utils
+# Utilities
 gdown==5.1.0
