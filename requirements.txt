@@ -1,24 +1,24 @@
 # Core
-streamlit==1.36.0
-ultralytics==8.2.0
+streamlit==1.32.2
+ultralytics==8.1.47
 opencv-python-headless==4.9.0.80
 numpy==1.26.4
-pillow==10.3.0
+pillow==10.2.0
 
 # Webcam + Media
 streamlit-webrtc==0.47.1
 av==11.0.0
 
 # LLMs
-openai==1.43.0
-google-generativeai==0.5.4
+openai==1.12.0
+google-generativeai==0.3.2
 python-dotenv==1.0.1
-langchain==0.2.10
-langchain-openai==0.1.17
+langchain==0.1.12
+langchain-openai==0.0.8
 
 # TTS
 gTTS==2.5.0
 playsound==1.2.2
 
-# Utilities
+# Utils
 gdown==5.1.0
