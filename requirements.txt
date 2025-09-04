@@ -1,24 +1,24 @@
 # Core
-streamlit==1.32.2
-ultralytics==8.1.47
-opencv-python-headless==4.9.0.80
-numpy==1.26.4
-pillow==9.0.0
+streamlit
+ultralytics
+opencv-python-headless
+numpy
+pillow
 
 # Webcam + Media
-streamlit-webrtc==0.47.1
-av==10.0.0
+streamlit-webrtc
+av<10  # PyAV 10 fails on Streamlit Cloud
 
 # LLMs
-openai==1.12.0
-google-generativeai==0.3.2
-python-dotenv==1.0.1
-langchain==0.1.12
-langchain-openai==0.0.8
+openai
+google-generativeai
+python-dotenv
+langchain
+langchain-openai
 
 # TTS
-gTTS==2.5.0
-playsound==1.2.2
+gTTS
+playsound
 
 # Utilities
-gdown==5.1.0
+gdown
