@@ -3,11 +3,10 @@ streamlit==1.32.2
 ultralytics==8.1.47
 opencv-python-headless==4.9.0.80
 numpy==1.26.4
-pillow==10.2.0
+pillow==10.0.1
 
 # Webcam + Media
 streamlit-webrtc==0.47.1
-# Let streamlit-webrtc pull the right av version automatically
 av
 
 # LLMs
