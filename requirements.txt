@@ -1,29 +1,19 @@
 # Core
-streamlit==1.32.2
-ultralytics==8.1.47
-opencv-python-headless==4.9.0.80
+streamlit==1.28.2
+opencv-python-headless==4.8.0.74
 numpy==1.26.4
-pillow==9.5.0
+Pillow==9.5.0
 
-# Webcam + Media
+# ML + YOLO
+torch==2.0.1
+torchvision==0.15.2
+torchaudio==2.0.2
+ultralytics==8.0.196
+
+# Streamlit RTC
 streamlit-webrtc==0.47.1
-av==9.2.0
+av==10.0.0
 
-# LLMs
-openai==1.12.0
-google-generativeai==0.3.2
-python-dotenv==1.0.1
-langchain==0.1.12
-langchain-openai==0.0.8
-
-# TTS
-gTTS==2.5.0
-playsound==1.2.2
-
-# Utilities
-gdown==5.1.0
-
-# ✅ Safe Torch version for YOLO
-torch==2.4.1
-torchvision==0.19.1
-torchaudio==2.4.1
+# Utils
+gdown==4.7.1
+protobuf==3.20.3
