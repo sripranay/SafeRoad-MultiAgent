@@ -5,3 +5,5 @@ aioice==0.8.0
 ultralytics==8.0.175
 opencv-python-headless==4.7.0.72
 numpy==1.25.2
+torch>=2.0.0
+torchvision>=0.15.0
