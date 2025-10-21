@@ -5,6 +5,32 @@ import cv2
 import tempfile
 import numpy as np
 from ultralytics import YOLO
+# put this at very top of app.py (before streamlit_webrtc is used)
+import logging
+
+# Monkey-patch ShutdownObserver.stop to be defensive if _polling_thread is None
+try:
+    from streamlit_webrtc import shutdown as _webrtc_shutdown
+
+    def _safe_shutdown_stop(self):
+        try:
+            t = getattr(self, "_polling_thread", None)
+            # If thread exists and has is_alive, check it; otherwise skip safely
+            if t is not None and hasattr(t, "is_alive"):
+                if t.is_alive():
+                    # try join briefly (non-blocking safeguard)
+                    try:
+                        t.join(timeout=0.01)
+                    except Exception:
+                        logging.debug("join on polling thread failed", exc_info=True)
+        except Exception:
+            logging.exception("safe shutdown stop failed")
+
+    # Replace the method
+    _webrtc_shutdown.ShutdownObserver.stop = _safe_shutdown_stop
+except Exception:
+    logging.exception("Failed to monkeypatch streamlit_webrtc.shutdown")
+
 from streamlit_webrtc import (
     webrtc_streamer,
     VideoTransformerBase,
