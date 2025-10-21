@@ -1,136 +1,129 @@
 import os
+import logging
+import streamlit as st
 import cv2
-import av
-import gdown
 import tempfile
 import numpy as np
-import streamlit as st
-from PIL import Image
-from streamlit_webrtc import webrtc_streamer, WebRtcMode, RTCConfiguration
-
-# Local imports
-from agents.vision_agent import VisionAgent
-from agents.risk_agent import RiskAgent
-from agents.llm_agent import LLMAgent, LLMMode
-from agents.orchestrator import Orchestrator
-from agents.tts_agent import TTSAgent
-from utils.draw import draw_boxes
+from ultralytics import YOLO
+from streamlit_webrtc import (
+    webrtc_streamer,
+    VideoTransformerBase,
+    WebRtcMode,
+    RTCConfiguration,
+)
 
 # -------------------------------
-# Ensure Models Exist (Auto Download)
+# Logging & Async debug
 # -------------------------------
-os.makedirs("models", exist_ok=True)
-
-BEST_MODEL_PATH = "models/best.pt"
-YOLOV8_MODEL_PATH = "models/yolov8s.pt"
-
-if not os.path.exists(BEST_MODEL_PATH):
-    st.warning("Downloading best.pt model from Google Drive...")
-    gdown.download(
-        "https://drive.google.com/uc?id=1KAiUGSIXvpYtw7fWsNzUfuFsCELRGcc2",
-        BEST_MODEL_PATH,
-        quiet=False
-    )
-
-if not os.path.exists(YOLOV8_MODEL_PATH):
-    st.warning("Downloading yolov8s.pt model from Google Drive...")
-    gdown.download(
-        "https://drive.google.com/uc?id=1c81Aupf-g6Ta_in2TRHxvID98E7JzV3O",
-        YOLOV8_MODEL_PATH,
-        quiet=False
-    )
+# (helps show more useful traces in Cloud logs)
+os.environ.setdefault("PYTHONASYNCIODEBUG", "1")
+logging.basicConfig(level=logging.DEBUG)
+logging.getLogger("streamlit_webrtc").setLevel(logging.DEBUG)
+logging.getLogger("aioice").setLevel(logging.DEBUG)
+logging.getLogger("aiortc").setLevel(logging.DEBUG)
 
 # -------------------------------
-# Streamlit Config
+# Load models
 # -------------------------------
-st.set_page_config(page_title="SafeRoad Multi-Agent Assistant", page_icon="🛣️", layout="wide")
-st.title("🛣️ SafeRoad Multi-Agent Assistant (SMAA)")
-st.caption("Vision + Risk + LLM + TTS Agents working together for road safety.")
+road_model = YOLO("models/best.pt")
+vehicle_model = YOLO("models/yolov8s.pt")
 
 # -------------------------------
-# Sidebar Settings
+# Helper: Run Detection
 # -------------------------------
-with st.sidebar:
-    st.header("⚙️ Settings")
-    llm_mode = st.selectbox("LLM Mode", ["OFFLINE", "OPENAI", "GEMINI"], index=0)
-    conf_thres = st.slider("Detection Confidence", 0.1, 0.9, 0.35, 0.05)
-    iou_thres = st.slider("NMS IoU", 0.2, 0.9, 0.5, 0.05)
-    st.write("Models auto-downloaded into ./models folder")
+def run_detection(image, use_road_model=True, use_vehicle_model=True):
+    annotated = image.copy()
+
+    if use_road_model:
+        results = road_model(image)
+        for r in results[0].boxes:
+            cls_id = int(r.cls)
+            label = road_model.names[cls_id]
+            xyxy = r.xyxy[0].cpu().numpy().astype(int)
+            cv2.rectangle(annotated, (xyxy[0], xyxy[1]), (xyxy[2], xyxy[3]), (0, 255, 255), 2)
+            cv2.putText(annotated, label, (xyxy[0], xyxy[1] - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+
+    if use_vehicle_model:
+        results = vehicle_model(image)
+        for r in results[0].boxes:
+            cls_id = int(r.cls)
+            label = vehicle_model.names[cls_id]
+            xyxy = r.xyxy[0].cpu().numpy().astype(int)
+            cv2.rectangle(annotated, (xyxy[0], xyxy[1]), (xyxy[2], xyxy[3]), (255, 0, 0), 2)
+            cv2.putText(annotated, label, (xyxy[0], xyxy[1] - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
+
+    return annotated
 
 # -------------------------------
-# Initialize Agents
+# WebRTC Live Camera transformer
 # -------------------------------
-vision = VisionAgent(BEST_MODEL_PATH, YOLOV8_MODEL_PATH, conf=conf_thres, iou=iou_thres)
-risk = RiskAgent()
-mode_map = {"OFFLINE": LLMMode.OFFLINE, "OPENAI": LLMMode.OPENAI, "GEMINI": LLMMode.GEMINI}
-llm = LLMAgent(mode=mode_map[llm_mode])
-tts = TTSAgent()
-orchestrator = Orchestrator(vision, risk, llm)
+class VideoTransformer(VideoTransformerBase):
+    def transform(self, frame):
+        try:
+            img = frame.to_ndarray(format="bgr24")
+            img = run_detection(img, use_road_model=True, use_vehicle_model=True)
+            return img
+        except Exception:
+            logging.exception("Error inside VideoTransformer.transform")
+            # return the original frame (or a black frame) to avoid crashing transport
+            try:
+                return frame.to_ndarray(format="bgr24")
+            except Exception:
+                # final fallback: return a small black image
+                return np.zeros((480, 640, 3), dtype=np.uint8)
 
 # -------------------------------
-# Helper Functions
+# Streamlit UI
 # -------------------------------
-def process_frame(frame):
-    detections = vision.detect(frame)
-    risk_out = risk.assess(detections, frame.shape)
-    alert_text = llm.generate_alert(detections, risk_out)
-    annotated = draw_boxes(frame.copy(), detections)
-    return annotated, risk_out, alert_text
+st.set_page_config(page_title="Road Detection App", layout="wide")
+st.title("🚦 Road Detection App - Vehicles, Humans & Damages")
 
-# -------------------------------
-# Tabs: Image | Video | Webcam
-# -------------------------------
-img_tab, vid_tab, cam_tab = st.tabs(["🖼️ Image", "🎞️ Video", "📷 Webcam"])
+option = st.sidebar.radio("Choose Input", ["Upload Image", "Upload Video", "Live Camera"])
 
-# ---------- Image Tab ----------
-with img_tab:
-    img_file = st.file_uploader("Upload Image", type=["jpg", "jpeg", "png"])
-    if img_file:
-        image = np.array(Image.open(img_file).convert("RGB"))
-        annotated, risk_out, alert_text = process_frame(image)
-        st.image(annotated, caption="Annotated", use_column_width=True)
-        st.metric("Risk Level", risk_out["level"], help=risk_out.get("reason"))
-        st.text_area("Alert", value=alert_text, height=120)
-        tts.speak(alert_text)
+if option == "Upload Image":
+    uploaded_image = st.file_uploader("Upload an Image", type=["jpg", "jpeg", "png"])
+    if uploaded_image:
+        file_bytes = np.asarray(bytearray(uploaded_image.read()), dtype=np.uint8)
+        image = cv2.imdecode(file_bytes, 1)
+        annotated = run_detection(image)
+        st.image(cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB), caption="Detection Result", use_column_width=True)
 
-# ---------- Video Tab ----------
-with vid_tab:
-    vid_file = st.file_uploader("Upload Video", type=["mp4", "avi", "mov"])
-    if vid_file:
+elif option == "Upload Video":
+    uploaded_video = st.file_uploader("Upload a Video", type=["mp4", "avi", "mov", "mkv"])
+    if uploaded_video:
         tfile = tempfile.NamedTemporaryFile(delete=False)
-        tfile.write(vid_file.read())
+        tfile.write(uploaded_video.read())
         cap = cv2.VideoCapture(tfile.name)
-        last_alert, last_risk = "", {"level": "LOW"}
 
-        while True:
+        stframe = st.empty()
+        while cap.isOpened():
             ret, frame = cap.read()
             if not ret:
                 break
-            annotated, risk_out, alert_text = process_frame(frame)
-            last_alert, last_risk = alert_text, risk_out
+            annotated = run_detection(frame)
+            stframe.image(cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB), channels="RGB")
         cap.release()
 
-        st.video(tfile.name)
-        st.metric("Risk Level", last_risk["level"], help=last_risk.get("reason"))
-        st.text_area("Alert", value=last_alert, height=120)
-        tts.speak(last_alert)
-
-# ---------- Webcam Tab ----------
-with cam_tab:
-    st.write("Live detection from your webcam with voice alerts.")
-
-    RTC_CONFIGURATION = {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
-
-    def callback(frame):
-        img = frame.to_ndarray(format="bgr24")
-        annotated, risk_out, alert_text = process_frame(img)
-        tts.speak(alert_text)
-        return av.VideoFrame.from_ndarray(annotated, format="bgr24")
-
-    webrtc_streamer(
-        key="road-safety",
-        mode=WebRtcMode.SENDRECV,
-        rtc_configuration=RTC_CONFIGURATION,
-        video_frame_callback=callback,
-        media_stream_constraints={"video": True, "audio": False},
+elif option == "Live Camera":
+    # use a stable RTCConfiguration with STUN; add TURN if you have it
+    rtc_config = RTCConfiguration(
+        {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
     )
+
+    # keep webrtc_ctx reference in case we need to stop later
+    webrtc_ctx = None
+    try:
+        webrtc_ctx = webrtc_streamer(
+            key="road-detection",
+            mode=WebRtcMode.SENDRECV,
+            rtc_configuration=rtc_config,
+            video_transformer_factory=VideoTransformer,
+            media_stream_constraints={"video": True, "audio": False},
+            async_processing=True,  # run transformer in background thread/coroutine
+        )
+    except Exception:
+        logging.exception("Error starting webrtc_streamer")
+    # no explicit stop here; Streamlit will handle session lifecycles,
+    # but app-level guards are below if you extend this file.
