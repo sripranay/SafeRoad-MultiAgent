@@ -1,36 +1,10 @@
 import os
-import logging
-import streamlit as st
 import cv2
 import tempfile
 import numpy as np
-from ultralytics import YOLO
-# put this at very top of app.py (before streamlit_webrtc is used)
 import logging
-
-# Monkey-patch ShutdownObserver.stop to be defensive if _polling_thread is None
-try:
-    from streamlit_webrtc import shutdown as _webrtc_shutdown
-
-    def _safe_shutdown_stop(self):
-        try:
-            t = getattr(self, "_polling_thread", None)
-            # If thread exists and has is_alive, check it; otherwise skip safely
-            if t is not None and hasattr(t, "is_alive"):
-                if t.is_alive():
-                    # try join briefly (non-blocking safeguard)
-                    try:
-                        t.join(timeout=0.01)
-                    except Exception:
-                        logging.debug("join on polling thread failed", exc_info=True)
-        except Exception:
-            logging.exception("safe shutdown stop failed")
-
-    # Replace the method
-    _webrtc_shutdown.ShutdownObserver.stop = _safe_shutdown_stop
-except Exception:
-    logging.exception("Failed to monkeypatch streamlit_webrtc.shutdown")
-
+import streamlit as st
+from ultralytics import YOLO
 from streamlit_webrtc import (
     webrtc_streamer,
     VideoTransformerBase,
@@ -38,25 +12,47 @@ from streamlit_webrtc import (
     RTCConfiguration,
 )
 
-# -------------------------------
-# Logging & Async debug
-# -------------------------------
-# (helps show more useful traces in Cloud logs)
+# -------------------------------------------------------------------
+# 1️⃣  Monkeypatch to prevent "NoneType has no attribute 'is_alive'" error
+# -------------------------------------------------------------------
+try:
+    from streamlit_webrtc import shutdown as _webrtc_shutdown
+
+    def _safe_shutdown_stop(self):
+        """Safely stop polling thread without crashing."""
+        try:
+            t = getattr(self, "_polling_thread", None)
+            if t is not None and hasattr(t, "is_alive"):
+                if t.is_alive():
+                    try:
+                        t.join(timeout=0.01)
+                    except Exception:
+                        logging.debug("Join on polling thread failed", exc_info=True)
+        except Exception:
+            logging.exception("safe shutdown stop failed")
+
+    _webrtc_shutdown.ShutdownObserver.stop = _safe_shutdown_stop
+except Exception:
+    logging.exception("Failed to monkeypatch streamlit_webrtc.shutdown")
+
+# -------------------------------------------------------------------
+# 2️⃣  Logging setup
+# -------------------------------------------------------------------
 os.environ.setdefault("PYTHONASYNCIODEBUG", "1")
 logging.basicConfig(level=logging.DEBUG)
 logging.getLogger("streamlit_webrtc").setLevel(logging.DEBUG)
 logging.getLogger("aioice").setLevel(logging.DEBUG)
 logging.getLogger("aiortc").setLevel(logging.DEBUG)
 
-# -------------------------------
-# Load models
-# -------------------------------
-road_model = YOLO("models/best.pt")
-vehicle_model = YOLO("models/yolov8s.pt")
+# -------------------------------------------------------------------
+# 3️⃣  Load YOLO models
+# -------------------------------------------------------------------
+road_model = YOLO("models/best.pt")        # Custom model (potholes, speed breakers)
+vehicle_model = YOLO("models/yolov8s.pt")  # Pretrained YOLOv8s (vehicles, humans)
 
-# -------------------------------
-# Helper: Run Detection
-# -------------------------------
+# -------------------------------------------------------------------
+# 4️⃣  Detection Helper Function
+# -------------------------------------------------------------------
 def run_detection(image, use_road_model=True, use_vehicle_model=True):
     annotated = image.copy()
 
@@ -82,9 +78,9 @@ def run_detection(image, use_road_model=True, use_vehicle_model=True):
 
     return annotated
 
-# -------------------------------
-# WebRTC Live Camera transformer
-# -------------------------------
+# -------------------------------------------------------------------
+# 5️⃣  Video Transformer (for Live Camera)
+# -------------------------------------------------------------------
 class VideoTransformer(VideoTransformerBase):
     def transform(self, frame):
         try:
@@ -93,29 +89,34 @@ class VideoTransformer(VideoTransformerBase):
             return img
         except Exception:
             logging.exception("Error inside VideoTransformer.transform")
-            # return the original frame (or a black frame) to avoid crashing transport
             try:
                 return frame.to_ndarray(format="bgr24")
             except Exception:
-                # final fallback: return a small black image
                 return np.zeros((480, 640, 3), dtype=np.uint8)
 
-# -------------------------------
-# Streamlit UI
-# -------------------------------
+# -------------------------------------------------------------------
+# 6️⃣  Streamlit App Layout
+# -------------------------------------------------------------------
 st.set_page_config(page_title="Road Detection App", layout="wide")
 st.title("🚦 Road Detection App - Vehicles, Humans & Damages")
 
 option = st.sidebar.radio("Choose Input", ["Upload Image", "Upload Video", "Live Camera"])
 
+# -------------------------------------------------------------------
+# 7️⃣  Image Upload Mode
+# -------------------------------------------------------------------
 if option == "Upload Image":
     uploaded_image = st.file_uploader("Upload an Image", type=["jpg", "jpeg", "png"])
     if uploaded_image:
         file_bytes = np.asarray(bytearray(uploaded_image.read()), dtype=np.uint8)
         image = cv2.imdecode(file_bytes, 1)
         annotated = run_detection(image)
-        st.image(cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB), caption="Detection Result", use_column_width=True)
+        st.image(cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB),
+                 caption="Detection Result", use_column_width=True)
 
+# -------------------------------------------------------------------
+# 8️⃣  Video Upload Mode
+# -------------------------------------------------------------------
 elif option == "Upload Video":
     uploaded_video = st.file_uploader("Upload a Video", type=["mp4", "avi", "mov", "mkv"])
     if uploaded_video:
@@ -132,24 +133,22 @@ elif option == "Upload Video":
             stframe.image(cv2.cvtColor(annotated, cv2.COLOR_BGR2RGB), channels="RGB")
         cap.release()
 
+# -------------------------------------------------------------------
+# 9️⃣  Live Camera Mode (WebRTC)
+# -------------------------------------------------------------------
 elif option == "Live Camera":
-    # use a stable RTCConfiguration with STUN; add TURN if you have it
     rtc_config = RTCConfiguration(
         {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
     )
 
-    # keep webrtc_ctx reference in case we need to stop later
-    webrtc_ctx = None
     try:
-        webrtc_ctx = webrtc_streamer(
+        webrtc_streamer(
             key="road-detection",
             mode=WebRtcMode.SENDRECV,
             rtc_configuration=rtc_config,
             video_transformer_factory=VideoTransformer,
             media_stream_constraints={"video": True, "audio": False},
-            async_processing=True,  # run transformer in background thread/coroutine
+            async_processing=True,
         )
     except Exception:
         logging.exception("Error starting webrtc_streamer")
-    # no explicit stop here; Streamlit will handle session lifecycles,
-    # but app-level guards are below if you extend this file.
